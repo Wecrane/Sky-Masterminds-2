@@ -57,7 +57,7 @@ float BDI_V = 0;                             /* 电池电压 (V) */
 #define LOW_BATTERY_RECOVER_TH    7.6f       /* 电压恢复阈值 (V), 滞回防抖 */
 #define LOW_BATTERY_LED_PERIOD_MS 300        /* LED闪烁周期 (ms) */
 #define LOW_BATTERY_MSG_PERIOD_MS 5000       /* 低电压消息发送周期 (ms) */
-#define LOW_BATTERY_DEBOUNCE_CNT  50         /* 消抖计数, 约100ms连续低电压才触发 */
+#define LOW_BATTERY_DEBOUNCE_CNT  500         /* 消抖计数, 约1000ms连续低电压才触发 */
 
 static uint8_t g_low_battery_flag = 0;       /* 低电压标志 */
 static uint32_t g_low_battery_led_timer = 0; /* LED闪烁定时器 */
@@ -316,7 +316,6 @@ static void HandleKeyEvent(Key_Event_t *event)
 				star_car = 0;
 				g_bt_key_control_mode = 0;
 				BT_HandleKeyControlModeChange(0);
-				WheelLock_Disable();  /* 急停时禁用锁定 */
 				SpeedPID_ResetState();
 				BT_EmergencyStop();
 			}
