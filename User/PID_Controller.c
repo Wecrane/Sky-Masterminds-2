@@ -497,6 +497,20 @@ void PID_Control_Update(void)
 		
 		SpeedPID_ManualUpdateDual(g_bt_target_left, g_bt_target_right, &outL, &outR);
 
+		/* 蓝牙起步补偿: 起步阶段强制 1500 PWM 以确保迅速启动 */
+		#define BT_START_PWM 2000.0f
+		#define BT_START_SPEED_THRESHOLD 15.0f
+		if(fabsf(g_bt_target_left) > 1.0f && fabsf((float)speed_left) < BT_START_SPEED_THRESHOLD)
+		{
+			if(fabsf(outL) < BT_START_PWM)
+				outL = (g_bt_target_left >= 0.0f) ? BT_START_PWM : -BT_START_PWM;
+		}
+		if(fabsf(g_bt_target_right) > 1.0f && fabsf((float)speed_right) < BT_START_SPEED_THRESHOLD)
+		{
+			if(fabsf(outR) < BT_START_PWM)
+				outR = (g_bt_target_right >= 0.0f) ? BT_START_PWM : -BT_START_PWM;
+		}
+
 		/* 应用软启动限幅 */
 		float limit = (float)g_bt_duty_cap;
 		if(limit > (float)MOTOR_DUTY_MAX) limit = (float)MOTOR_DUTY_MAX;
