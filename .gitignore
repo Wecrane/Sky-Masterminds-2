@@ -1,8 +1,10 @@
-# KEIL5 编译生成文件
+# ==================== KEIL5 核心编译文件 ====================
+# 最终输出文件
 *.axf
 *.hex
 *.elf
 *.bin
+# 编译中间文件
 *.lst
 *.o
 *.obj
@@ -12,20 +14,18 @@
 *.rsp
 *.sct
 *.dep
-*.bak
 *.tmp
 *.err
-*.uvoptx
-*.uvguix.*
-*.htm
 *.map
 *.tra
-*.dep
-*.crf
-*.lnp
-*.axf
+# KEIL5 本地配置文件（个性化布局/调试设置，无需同步）
+*.uvoptx
+*.uvguix.*
+# 其他KEIL5生成文件
+*.bak
+*.htm
 
-# KEIL5 输出目录
+# ==================== KEIL5 编译目录 ====================
 Objects/
 Listings/
 Output/
@@ -33,12 +33,19 @@ build/
 Debug/
 Release/
 
-# VS Code 配置文件
+# ==================== VS Code 相关 ====================
 .vscode/
+# （可选：如果需要同步部分VS Code配置，取消下面两行注释）
+# !.vscode/extensions.json
+# !.vscode/settings.json
 
-
-# 其他临时文件
+# ==================== 系统/临时文件 ====================
 *.log
 *.cache
 .DS_Store  # Mac系统临时文件
 Thumbs.db  # Windows系统临时文件
+# 补充KEIL5调试相关临时文件
+JLinkLog.txt
+JLinkSettings.ini
+keilkill.bat
+EventRecorderStub.scvd
