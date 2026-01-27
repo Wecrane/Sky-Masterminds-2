@@ -5,9 +5,14 @@
 #include "PID_Controller.h"
 #include "BlackPoint_Finder.h"
 #include "ADC_get.h"
+#include "RGB_Led.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+/*=== 外部变量引用（用于模式切换） ===*/
+extern uint8_t star_car;                        /* 巡线模式标志 */
+extern volatile uint8_t g_bt_key_control_mode;  /* 蓝牙遥控模式标志 */
 
 /*=== 接收缓冲区和状态 ===*/
 static char g_cmd_buffer[BT_CMD_BUFFER_SIZE];
@@ -58,6 +63,11 @@ void BT_EmergencyStop(void)
     g_motion_mode = MOTION_IDLE;
     g_motion_speed = 0;
     
+    // 退出巡线模式和键控模式
+    star_car = 0;
+    g_bt_key_control_mode = 0;
+    g_key_control_mode = 0;
+    
     // 立即停止所有电机
     Motor_StopAll();
     Motor_Disable();
@@ -66,6 +76,9 @@ void BT_EmergencyStop(void)
     M3PWM_SetDutyCycle(0);
     M3PWM_Stop();
     g_vacuum_enabled = 0;
+    
+    // 设置LED为红色表示急停状态
+    RGB_SetColor(RGB_COLOR_R);
     
     BT_SendResponse("OK:ESTOP\r\n");
 }
@@ -76,6 +89,10 @@ void BT_EmergencyStop(void)
 void BT_ClearEmergencyStop(void)
 {
     g_emergency_stop = 0;
+    
+    // 关闭急停LED
+    RGB_SetColor(RGB_COLOR_OFF);
+    
     BT_SendResponse("OK:ESTOP_CLR\r\n");
 }
 
@@ -293,6 +310,14 @@ static void BT_HandleKeyControlMode(uint8_t enabled)
         g_emergency_stop = 0;
         g_motion_mode = MOTION_IDLE;
         g_motion_speed = 0;
+        
+        // 同步全局模式变量
+        g_bt_key_control_mode = 1;
+        star_car = 0;  // 退出巡线模式
+        
+        // 设置LED为蓝色表示键控模式
+        RGB_SetColor(RGB_COLOR_B);
+        
         BT_SendResponse("OK:KEY=ON\r\n");
     }
     else
@@ -300,6 +325,13 @@ static void BT_HandleKeyControlMode(uint8_t enabled)
         // 退出键控模式，停止运动
         g_motion_mode = MOTION_IDLE;
         g_motion_speed = 0;
+        
+        // 同步全局模式变量
+        g_bt_key_control_mode = 0;
+        
+        // 关闭LED
+        RGB_SetColor(RGB_COLOR_OFF);
+        
         BT_SendResponse("OK:KEY=OFF\r\n");
     }
 }
