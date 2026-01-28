@@ -68,6 +68,9 @@ void BT_EmergencyStop(void)
     g_bt_key_control_mode = 0;
     g_key_control_mode = 0;
     
+    // 禁用轮子锁定
+    WheelLock_Disable();
+    
     // 立即停止所有电机
     Motor_StopAll();
     Motor_Disable();

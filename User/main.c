@@ -242,7 +242,8 @@ static void HandleKeyEvent(Key_Event_t *event)
 
 		/* K1: 巡线模式启停 */
 		case KEY_K1:
-			if(BT_IsEmergencyStopped() || g_bt_key_control_mode) break;
+			/* 键控模式下不允许启动巡线 */
+			if(g_bt_key_control_mode) break;
 			
 			if(star_car)
 			{
@@ -257,7 +258,15 @@ static void HandleKeyEvent(Key_Event_t *event)
 			}
 			else
 			{
-				/* 启动巡线 */
+				/* 启动巡线 - 自动清除急停状态 */
+				if(BT_IsEmergencyStopped())
+				{
+					BT_ClearEmergencyStop();
+				}
+				
+				/* 禁用轮子锁定 (可能从键控模式切换过来) */
+				WheelLock_Disable();
+				
 				RGB_SetColor(RGB_COLOR_G);
 				star_car = 1;
 				g_lose_time = 0;  /* 清零丢线计数 */
@@ -279,7 +288,8 @@ static void HandleKeyEvent(Key_Event_t *event)
 
 		/* K2: 蓝牙遥控模式启停 */
 		case KEY_K2:
-			if(BT_IsEmergencyStopped() || star_car) break;
+			/* 巡线模式下不允许进入蓝牙模式 */
+			if(star_car) break;
 			
 			if(g_bt_key_control_mode)
 			{
@@ -294,7 +304,12 @@ static void HandleKeyEvent(Key_Event_t *event)
 			}
 			else
 			{
-				/* 进入蓝牙模式 */
+				/* 进入蓝牙模式 - 自动清除急停状态 */
+				if(BT_IsEmergencyStopped())
+				{
+					BT_ClearEmergencyStop();
+				}
+				
 				g_bt_key_control_mode = 1;
 				star_car = 0;
 				PID_PositionLoop_Enable(0);

@@ -1,0 +1,74 @@
+Load "g:\\Sky-Masterminds-2\\Objects\\Project.axf" 
+100
+Erase: 
+0
+3
+7
+11
+15
+18
+22
+26
+30
+33
+37
+41
+45
+48
+52
+56
+60
+64
+67
+71
+75
+79
+82
+86
+90
+94
+97
+100
+100
+0
+Erase Done.100
+Program: 
+0
+3
+7
+11
+15
+18
+22
+26
+30
+33
+37
+41
+45
+48
+52
+56
+60
+64
+67
+71
+75
+79
+82
+86
+90
+94
+97
+100
+100
+0
+Programming Done.100
+Verify: 
+0
+100
+100
+0
+Verify OK.Application running ...
+Flashed OK
+Flash Load finished at 18:43:01

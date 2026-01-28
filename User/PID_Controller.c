@@ -30,7 +30,7 @@ static SpeedPID_Controller_t g_speed_pid_left;
 static SpeedPID_Controller_t g_speed_pid_right;
 
 /* 巡线速度参数 (可通过串口动态调整) */
-static float g_line_speed_base = 80.0f;   /* 基础速度 (默认80) */
+static float g_line_speed_base = 130.0f;   /* 基础速度 (默认130) */
 static float g_line_speed_range = 30.0f;  /* 速度变化范围 (默认30) */
 
 /* 位置环控制器 (巡线偏差修正) */
@@ -504,9 +504,9 @@ void PID_Init(void)
 	SpeedPID_Init(&g_speed_pid_left,  2.60f, 0.173f, 0.0f, 10.0f, 8000.0f, -8000.0f);
 	SpeedPID_Init(&g_speed_pid_right, 2.75f, 0.183f, 0.0f, 10.0f, 8000.0f, -8000.0f);
 	
-	/* 位置环参数: Kp=500, Ki=1 (消除稳态误差), Kd=1, GyroKd=200
+	/* 位置环参数
 	 * 目标位置 7.5 (16 路传感器中心) */
-	PositionPID_Init(&g_position_pid, 500.0f, 1.0f, 1.0f, 200.0f, 9000.0f, -9000.0f, 7.5f);
+	PositionPID_Init(&g_position_pid, 425.0f, 1.5f, 3000.0f, 100.0f, 9000.0f, -9000.0f, 7.5f);
 
 	/* 默认启用位置环 (巡线模式) */
 	PID_PositionLoop_Enable(1);
