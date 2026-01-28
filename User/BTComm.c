@@ -6,6 +6,8 @@
 #include "BlackPoint_Finder.h"
 #include "ADC_get.h"
 #include "RGB_Led.h"
+#include "Odometer.h"
+#include "ABEncoder.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -644,6 +646,106 @@ static void BT_ParseCommand(const char *cmd)
         BT_SendResponse(buf);
         sprintf(buf, "PWM:L=%.0f,R=%.0f\r\n", pwm_l, pwm_r);
         BT_SendResponse(buf);
+        return;
+    }
+    
+    // 里程计状态查询: ?ODOM 或 ODOM - 返回位置、坐标、航向角
+    if(strcmp(cmd_part, "?ODOM") == 0 || strcmp(cmd_part, "ODOM") == 0)
+    {
+        char buf[128];
+        Odometer_Data_t odom;
+        Odometer_GetData(&odom);
+        
+        sprintf(buf, "LOC:%.2f mm\r\n", odom.location);
+        BT_SendResponse(buf);
+        sprintf(buf, "POS:X=%.2f,Y=%.2f mm\r\n", odom.x, odom.y);
+        BT_SendResponse(buf);
+        sprintf(buf, "HDG:%.2f deg\r\n", odom.theta);
+        BT_SendResponse(buf);
+        sprintf(buf, "ENC:L=%ld,R=%ld\r\n", left_ecoder_cnt, right_ecoder_cnt);
+        BT_SendResponse(buf);
+        return;
+    }
+    
+    // 里程计重置: ODOM_RST - 重置坐标和里程
+    if(strcmp(cmd_part, "ODOM_RST") == 0)
+    {
+        Odometer_Reset();
+        BT_SendResponse("OK:ODOM_RST\r\n");
+        return;
+    }
+    
+    // 里程计坐标重置(保留里程): ODOM_ZERO - 仅重置坐标，保留累计里程
+    if(strcmp(cmd_part, "ODOM_ZERO") == 0)
+    {
+        Odometer_ResetCoordinate();
+        BT_SendResponse("OK:ODOM_ZERO\r\n");
+        return;
+    }
+    
+    // 编码器校准开始: CALIB_START - 开始记录脉冲数
+    if(strcmp(cmd_part, "CALIB_START") == 0 || strcmp(cmd_part, "CALIB") == 0)
+    {
+        Odometer_StartCalibration();
+        RGB_SetColor(RGB_COLOR_YELLOW);
+        BT_SendResponse("OK:CALIB_START\r\n");
+        BT_SendResponse("Push car straight, then send CALIB_END:distance_mm\r\n");
+        return;
+    }
+    
+    // 编码器校准结束: CALIB_END:1000 - 传入实际推动的距离(mm)
+    if(strcmp(cmd_part, "CALIB_END") == 0)
+    {
+        RGB_SetColor(RGB_COLOR_OFF);
+        
+        if(!Odometer_IsCalibrating())
+        {
+            BT_SendResponse("ERR:NOT_CALIB\r\n");
+            return;
+        }
+        
+        int32_t pulses = Odometer_GetCalibrationPulseCount();
+        
+        if(colon && param > 0)
+        {
+            // 用户指定了实际距离
+            float new_pulse_per_mm = Odometer_EndCalibration((float)param);
+            char buf[128];
+            sprintf(buf, "CALIB:pulses=%ld,dist=%d mm\r\n", pulses, param);
+            BT_SendResponse(buf);
+            sprintf(buf, "NEW_PULSE_PER_MM=%.4f\r\n", new_pulse_per_mm);
+            BT_SendResponse(buf);
+            BT_SendResponse("Update ODOM_ENCODER_PULSE_PER_MM in Odometer.h\r\n");
+        }
+        else
+        {
+            // 未指定距离，仅显示脉冲数
+            char buf[128];
+            sprintf(buf, "CALIB:pulses=%ld\r\n", pulses);
+            BT_SendResponse(buf);
+            sprintf(buf, "If 500mm: %.4f pulse/mm\r\n", (float)pulses / 500.0f);
+            BT_SendResponse(buf);
+            sprintf(buf, "If 1000mm: %.4f pulse/mm\r\n", (float)pulses / 1000.0f);
+            BT_SendResponse(buf);
+            BT_SendResponse("Send CALIB_END:xxx (xxx=actual mm)\r\n");
+        }
+        return;
+    }
+    
+    // 校准状态查询: ?CALIB - 查看当前校准脉冲数
+    if(strcmp(cmd_part, "?CALIB") == 0)
+    {
+        if(Odometer_IsCalibrating())
+        {
+            int32_t pulses = Odometer_GetCalibrationPulseCount();
+            char buf[64];
+            sprintf(buf, "CALIB:pulses=%ld (active)\r\n", pulses);
+            BT_SendResponse(buf);
+        }
+        else
+        {
+            BT_SendResponse("CALIB:inactive\r\n");
+        }
         return;
     }
     

@@ -48,14 +48,14 @@
  *         
  *         实际校准更准确!
  */
-#define ODOM_ENCODER_PULSE_PER_MM   11.82f
+#define ODOM_ENCODER_PULSE_PER_MM   38.897f
 
 /**
  * @brief  左右轮轴距 (单位: mm)
  * @note   两轮中心之间的距离，用于差速转向计算
  *         需要测量实际值并更新
  */
-#define ODOM_WHEEL_BASE_MM          100.0f
+#define ODOM_WHEEL_BASE_MM          155.0f
 
 /* ========================================================================== */
 /*                              数据结构定义                                   */
