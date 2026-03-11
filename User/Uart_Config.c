@@ -5,7 +5,7 @@
 #include <stdio.h>
 
 #ifndef USART2_RX_BUFFER_SIZE
-#define USART2_RX_BUFFER_SIZE 128
+#define USART2_RX_BUFFER_SIZE 256
 #endif
 
 static volatile uint8_t s_usart2_rx_buffer[USART2_RX_BUFFER_SIZE];
@@ -70,6 +70,12 @@ void Uart2_Init(uint32_t baudrate)
 extern uint16_t uart_rev_tiem;
 void USART2_IRQHandler(void)
 {
+	// ORE溢出错误处理：必须先读SR再读DR来清除，否则RXNE将停止工作
+	if(USART_GetFlagStatus(USART2, USART_FLAG_ORE) != RESET)
+	{
+		(void)USART_ReceiveData(USART2); // 读DR清除ORE标志
+	}
+
 	if(USART_GetITStatus(USART2, USART_IT_RXNE) != RESET)
 	{
 		uart_rev_tiem = 0;
@@ -148,17 +154,23 @@ uint8_t Uart2_ReadByte(uint8_t *valid)
 	return ch;
 }
 
-// 保留旧接口以兼容（添加超时保护）
+// 保留旧接口以兼容（添加超时保护和临界区）
 uint8_t Uart2_ReadByteBlocking(void)
 {
 	volatile uint32_t timeout = 100000; // 超时保护
-	while(s_usart2_rx_head == s_usart2_rx_tail)
+	while(1)
 	{
+		USART_ITConfig(USART2, USART_IT_RXNE, DISABLE);
+		if(s_usart2_rx_head != s_usart2_rx_tail)
+		{
+			uint8_t ch = s_usart2_rx_buffer[s_usart2_rx_tail];
+			s_usart2_rx_tail = (uint16_t)((s_usart2_rx_tail + 1) % USART2_RX_BUFFER_SIZE);
+			USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);
+			return ch;
+		}
+		USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);
 		if(--timeout == 0) return 0xFF; // 超时返回
 	}
-	uint8_t ch = s_usart2_rx_buffer[s_usart2_rx_tail];
-	s_usart2_rx_tail = (uint16_t)((s_usart2_rx_tail + 1) % USART2_RX_BUFFER_SIZE);
-	return ch;
 }
 
 int Uart2_BytesAvailable(void)

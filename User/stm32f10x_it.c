@@ -219,12 +219,29 @@ void SysTick_Handler(void)
         position_get = result_BlackPoint.precise_position * 10.0f;
         if(g_lose_time > 0)
         {
-          g_lose_time--;
+          g_lose_time = 0;  /* 找到线立即清零, 加快恢复 */
         }
       }
       else
       {
         g_lose_time ++;
+        /* 丢线时向上次偏离方向外推position, 帮助过直角弯 */
+        if(g_lose_time <= 250)
+        {
+          if(position_get < 75)       /* 上次偏左, 继续推左 */
+            position_get = 0;
+          else if(position_get > 75)  /* 上次偏右, 继续推右 */
+            position_get = 150;
+          else
+          {
+            /* 正好中间: 用陀螺仪角速度判断车正在往哪边偏, 往那边推 */
+            if(LSE6DSR_data.gz_rads > 0.05f)
+              position_get = 0;         /* 正在左转, 推左 */
+            else if(LSE6DSR_data.gz_rads < -0.05f)
+              position_get = 150;       /* 正在右转, 推右 */
+            /* gz≈0 且正好中间: 保持不动, 等下一帧判断 */
+          }
+        }
         if(g_lose_time > 250) 
         {
           g_lose_time = 50;

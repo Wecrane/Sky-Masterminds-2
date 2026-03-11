@@ -4,12 +4,12 @@
 // 传感器配置数组 (保留用于兼容性)
 static SensorConfig_t sensor_config[SENSOR_COUNT];
 
-// 传感器独立阈值 (Min_White + Max_Black) / 2
-// 全白: 529,491,532,562,651,611,572,605,579,524,587,552,553,506,530,534
-// 全黑: 376,307,312,317,355,364,344,377,353,316,368,352,341,303,341,340
-static const uint16_t SENSOR_THRESHOLDS[SENSOR_COUNT] = {
-    452, 399, 422, 439, 503, 487, 458, 491,
-    466, 420, 477, 452, 447, 404, 435, 437
+// 传感器独立阈值 = Black_Max + (White_Min - Black_Max) * 0.35
+// 全白(取最小): 527,516,508,516,586,602,594,587,575,546,597,554,546,496,529,524
+// 全黑(取最大): 358,321,280,299,339,342,336,336,335,306,363,337,322,301,330,318
+static uint16_t SENSOR_THRESHOLDS[SENSOR_COUNT] = {
+    417, 389, 360, 375, 425, 433, 426, 424,
+    419, 390, 445, 413, 400, 369, 400, 390
 };
 
 // 状态记录用于迟滞 (0=White, 1=Black)
@@ -19,6 +19,7 @@ static uint8_t sensor_states[SENSOR_COUNT] = {0};
 // 上一次找到的黑点位置
 static uint8_t last_position = 7; // (SENSOR_COUNT - 1) / 2 = 7 (向下取整)
 static float last_precise_position = 7.5f; // 精确中心位置
+static float g_last_weight_sum = 0.0f;  // 上一次位置计算的总权重
 
 /**
  * @brief 初始化寻点模块
@@ -157,6 +158,9 @@ float BlackPoint_Finder_Search(volatile uint16_t *adc_values, BlackPointResult_t
 		}
 	}
 	
+	// 保存本次权重总和（黑线未检测到时为0）
+	g_last_weight_sum = weight_sum;
+	
 	// 没有找到黑线
 	if(black_count == 0)
 	{
@@ -170,6 +174,27 @@ float BlackPoint_Finder_Search(volatile uint16_t *adc_values, BlackPointResult_t
 	if(weight_sum > 0.1f)
 	{
 		precise_pos = pos_sum / weight_sum;
+	}
+	
+	// 边缘噪声过滤: 只有最外侧1个传感器检测到黑色(单点),
+	// 且与上次位置跨越几乎全幅, 才视为地图外地面噪声
+	// 注意: 直角弯时线会合法地从中心跳到边缘, 不能误杀
+	if(black_count == 1)
+	{
+		uint8_t all_left_edge = (precise_pos < 0.5f);
+		uint8_t all_right_edge = (precise_pos > (float)(SENSOR_COUNT - 1) - 0.5f);
+		float jump = fabsf(precise_pos - last_precise_position);
+		// 仅单点+最外侧+跨越几乎全幅(13通道以上)才过滤
+		if(jump > 13.0f)
+		{
+			if(all_left_edge || all_right_edge)
+			{
+				result->found = 0;
+				result->position = last_position;
+				result->precise_position = last_precise_position;
+				return last_precise_position;
+			}
+		}
 	}
 	
 	// 限制范围
@@ -200,6 +225,30 @@ uint8_t BlackPoint_Finder_GetLastPosition(void)
 void BlackPoint_Finder_ResetLastPosition(void)
 {
 	last_position = SENSOR_COUNT / 2;
+}
+
+/**
+ * @brief 获取上一次黑线位置计算的总权重
+ * @return 权重总和（0表示未检测到黑线）
+ */
+float BlackPoint_Finder_GetLastWeightSum(void)
+{
+	return g_last_weight_sum;
+}
+
+void BlackPoint_Finder_SetThreshold(uint8_t sensor_idx, uint16_t threshold)
+{
+	if(sensor_idx < SENSOR_COUNT)
+	{
+		SENSOR_THRESHOLDS[sensor_idx] = threshold;
+	}
+}
+
+uint16_t BlackPoint_Finder_GetThreshold(uint8_t sensor_idx)
+{
+	if(sensor_idx < SENSOR_COUNT)
+		return SENSOR_THRESHOLDS[sensor_idx];
+	return 0;
 }
 
 // ==================== 模拟黑点测试功能 ====================

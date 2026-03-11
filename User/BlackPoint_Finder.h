@@ -99,6 +99,26 @@ uint8_t BlackPoint_Finder_GetLastPosition(void);
 void BlackPoint_Finder_ResetLastPosition(void);
 
 /**
+ * @brief 获取上一次黑线位置计算的总权重
+ * @return 权重总和（0表示未检测到黑线）
+ */
+float BlackPoint_Finder_GetLastWeightSum(void);
+
+/**
+ * @brief 设置指定传感器的阈值（用于校准）
+ * @param sensor_idx: 传感器索引（0~SENSOR_COUNT-1）
+ * @param threshold: 新阈值
+ */
+void BlackPoint_Finder_SetThreshold(uint8_t sensor_idx, uint16_t threshold);
+
+/**
+ * @brief 获取指定传感器的当前阈值
+ * @param sensor_idx: 传感器索引（0~SENSOR_COUNT-1）
+ * @return 当前阈值
+ */
+uint16_t BlackPoint_Finder_GetThreshold(uint8_t sensor_idx);
+
+/**
  * @brief 设置模拟黑点模式
  * @param enable: 1=启用模拟模式, 0=禁用（使用真实ADC）
  */

@@ -16,10 +16,13 @@
 /*=== 外部变量引用（用于模式切换） ===*/
 extern uint8_t star_car;                        /* 巡线模式标志 */
 extern volatile uint8_t g_bt_key_control_mode;  /* 蓝牙遥控模式标志 */
+extern int16_t position_get;                    /* 传感器检测到的黑线位置 (放大10倍) */
+extern volatile uint32_t g_systick_ms;          /* 系统滴答计时器 (毫秒) */
 
 /*=== 接收缓冲区和状态 ===*/
 static char g_cmd_buffer[BT_CMD_BUFFER_SIZE];
 static uint8_t g_cmd_index = 0;
+static uint8_t g_cmd_overflow = 0;  // 命令溢出标志，溢出后等待换行再恢复
 
 /*=== 当前运动状态 ===*/
 static Motion_Mode_t g_motion_mode = MOTION_IDLE;
@@ -30,6 +33,11 @@ static uint8_t g_vacuum_speed = 0;       // 吸盘转速 0-100
 static uint8_t g_key_control_mode = 0;    // 键控模式标志 0=OFF, 1=ON
 static uint8_t g_emergency_stop = 0;      // 急停标志 0=正常, 1=急停
 
+/*=== 实时调试数据打印状态 ===*/
+static uint8_t g_live_debug = 0;            /* 实时数据打印开关: 0=关, 1=开 */
+static uint32_t g_live_debug_last_ms = 0;   /* 上次打印时间戳 (ms) */
+#define LIVE_DEBUG_INTERVAL_MS  100         /* 打印间隔 (100ms) */
+
 /*=== 吸盘默认转速配置 ===*/
 #define VACUUM_DEFAULT_SPEED  0          // 吸盘默认转速百分比
 
@@ -39,6 +47,7 @@ static uint8_t g_emergency_stop = 0;      // 急停标志 0=正常, 1=急停
 void BT_Init(void)
 {
     g_cmd_index = 0;
+    g_cmd_overflow = 0;
     memset(g_cmd_buffer, 0, sizeof(g_cmd_buffer));
     g_motion_mode = MOTION_IDLE;
     g_motion_speed = 0;
@@ -787,6 +796,22 @@ static void BT_ParseCommand(const char *cmd)
         return;
     }
     
+    // 实时数据打印开关（LIVE 命令，每次接收均切换状态）
+    if(strcmp(cmd_part, "LIVE") == 0)
+    {
+        g_live_debug = !g_live_debug;
+        if(g_live_debug)
+        {
+            g_live_debug_last_ms = g_systick_ms;
+            BT_SendResponse("OK:LIVE=ON\r\n");
+        }
+        else
+        {
+            BT_SendResponse("OK:LIVE=OFF\r\n");
+        }
+        return;
+    }
+
     // 键控模式开关
     if(strcmp(cmd_part, "KEY") == 0)
     {
@@ -847,27 +872,34 @@ static void BT_ParseCommand(const char *cmd)
 
 /**
  * @brief 处理接收的数据（字符串解析）
- *        改为非阻塞方式，避免死循环
+ *        非阻塞方式，处理缓冲区内所有已收到的数据
  */
 void BT_Process(void)
 {
-    // 限制单次处理的最大字节数，避免长时间阻塞主循环
-    uint8_t max_bytes = 32;
     uint8_t valid = 0;
+    int available = Uart2_BytesAvailable();
     
-    while(max_bytes > 0)
+    // 处理缓冲区中所有可用数据，不再限制32字节
+    // 这避免了缓冲区来不及消费而溢出丢字节的问题
+    while(available > 0)
     {
         uint8_t byte = Uart2_ReadByte(&valid);
         if(!valid)
         {
             break; // 没有数据了，退出
         }
-        max_bytes--;
+        available--;
         
         // 检测换行符，表示命令结束
         if(byte == '\n' || byte == '\r')
         {
-            if(g_cmd_index > 0)
+            if(g_cmd_overflow)
+            {
+                // 之前命令溢出，丢弃这条不完整命令，恢复正常
+                g_cmd_overflow = 0;
+                g_cmd_index = 0;
+            }
+            else if(g_cmd_index > 0)
             {
                 g_cmd_buffer[g_cmd_index] = '\0';
                 BT_ParseCommand(g_cmd_buffer);
@@ -882,11 +914,28 @@ void BT_Process(void)
             }
             else
             {
-                // 缓冲区满，丢弃当前命令并重新开始
+                // 缓冲区满，标记溢出，等待当前命令的换行符后丢弃
+                g_cmd_overflow = 1;
                 g_cmd_index = 0;
             }
         }
         // 忽略其他控制字符
+    }
+
+    /* 实时调试数据周期打印 */
+    if(g_live_debug)
+    {
+        uint32_t now = g_systick_ms;
+        if((now - g_live_debug_last_ms) >= LIVE_DEBUG_INTERVAL_MS)
+        {
+            g_live_debug_last_ms = now;
+            float pos_err = (float)position_get / 10.0f - 7.5f;
+            float wt = BlackPoint_Finder_GetLastWeightSum();
+            char buf[64];
+            sprintf(buf, "LIVE:L=%d,R=%d,ERR=%.2f,WT=%.0f\r\n",
+                    speed_left, speed_right, pos_err, wt);
+            BT_SendResponse(buf);
+        }
     }
 }
 

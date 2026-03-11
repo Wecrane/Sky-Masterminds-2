@@ -55,7 +55,7 @@ extern uint8_t star_car;
 
 /* 流程时间参数 */
 #define RIGHT_ENABLE_DELAY_MS    1000    /* 发车后 1s 开始检测右环 */
-#define RIGHT_COOLDOWN_MS        13000   /* 右环出环后冷却 13s */
+#define RIGHT_COOLDOWN_MS        4000   /* 右环出环后冷却 4s */
 #define PARKING_ENABLE_DELAY_MS  2000    /* 左环出环后 2s 开始检测停车 */
 #define PARKING_STOP_DURATION_MS 3000    /* 停车持续 3s */
 #define CROSSLINE_TARGET_COUNT   3       /* 需要检测到的横线数量 */
@@ -66,7 +66,7 @@ extern uint8_t star_car;
 typedef enum {
 	PHASE_RIGHT_WAIT = 0,       /* 等待 1s 后开始右环检测 */
 	PHASE_RIGHT_READY,          /* 可以检测右环入口 */
-	PHASE_RIGHT_COOLDOWN,       /* 右环出环后 13s 冷却 */
+	PHASE_RIGHT_COOLDOWN,       /* 右环出环后 4s 冷却 */
 	PHASE_LEFT_READY,           /* 可以检测左环入口 */
 	PHASE_DONE                  /* 双环完成, 等待停车 */
 } CirclePhase_t;
@@ -332,7 +332,7 @@ void Circle_Update(volatile uint16_t *adc_values)
 		s_parking_detection_enabled = 0;
 		s_crossline_count = 0;
 		s_on_crossline = 0;
-		printf("[CIRCLE] Car started, waiting 2s for right circle\r\n");
+		printf("[CIRCLE] Car started, waiting 1s for right circle\r\n");
 	}
 	
 	/* ======== 停车区域检测 (左环出环后 4s 启用) ======== */
@@ -396,7 +396,7 @@ void Circle_Update(volatile uint16_t *adc_values)
 			switch(s_phase)
 			{
 				case PHASE_RIGHT_WAIT:
-					/* 等待发车后 2s */
+					/* 等待发车后 1s */
 					if((g_systick_ms - s_car_start_ms) >= RIGHT_ENABLE_DELAY_MS)
 					{
 						s_phase = PHASE_RIGHT_READY;
@@ -430,7 +430,7 @@ void Circle_Update(volatile uint16_t *adc_values)
 					if((g_systick_ms - s_right_exit_ms) >= RIGHT_COOLDOWN_MS)
 					{
 						s_phase = PHASE_LEFT_READY;
-						printf("[CIRCLE] Left circle detection enabled\r\n");
+						printf("[CIRCLE] Right cooldown done, left detection enabled\r\n");
 					}
 					break;
 				
@@ -492,7 +492,6 @@ void Circle_Update(volatile uint16_t *adc_values)
 			if((g_systick_ms - s_enter_start_ms) >= ENTERING_DURATION_MS)
 			{
 				s_state = CIRCLE_STATE_IN_CIRCLE;
-				printf("[CIRCLE] >> IN_CIRCLE ang=%.1f\r\n", s_accumulated_angle);
 			}
 			break;
 		}
@@ -503,19 +502,11 @@ void Circle_Update(volatile uint16_t *adc_values)
 			/* 正常全幅巡线 + 角度积分 */
 			s_accumulated_angle += gz_filtered * CIRCLE_DT * CIRCLE_RAD_TO_DEG;
 			
-			/* 周期性打印 */
-			if((g_systick_ms - s_last_print_ms) >= 500)
-			{
-				printf("[CIRCLE] IN ang=%.1f\r\n", s_accumulated_angle);
-				s_last_print_ms = g_systick_ms;
-			}
-			
 			/* 角度够了 → EXITING */
 			if(fabsf(s_accumulated_angle) >= CIRCLE_EXIT_ANGLE)
 			{
 				s_state = CIRCLE_STATE_EXITING;
 				s_exit_start_ms = g_systick_ms;
-				printf("[CIRCLE] >> EXITING ang=%.1f\r\n", s_accumulated_angle);
 			}
 			break;
 		}

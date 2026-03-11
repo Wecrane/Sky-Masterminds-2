@@ -30,8 +30,8 @@ static SpeedPID_Controller_t g_speed_pid_left;
 static SpeedPID_Controller_t g_speed_pid_right;
 
 /* 巡线速度参数 (可通过串口动态调整) */
-static float g_line_speed_base = 110.0f;   /* 基础速度 (默认130) */
-static float g_line_speed_range = 10.0f;  /* 速度变化范围 (默认30) */
+static float g_line_speed_base = 180.0f;   /* 基础速度 (默认130) */
+static float g_line_speed_range = 30.0f;  /* 速度变化范围 (默认30) */
 
 /* 位置环控制器 (巡线偏差修正) */
 static PositionPID_Controller_t g_position_pid;
@@ -583,9 +583,16 @@ void PID_Control_Update(void)
 	static uint8_t first_set = 0;
 	static float start_speed = 0.0f;
 
-	/* 根据偏差动态调整基础速度: 偏差越大速度越慢 */
+	/* 根据偏差动态调整基础速度: 偏差越大速度越慢
+	 * 偏差 0~3: 线性减速 (range)
+	 * 偏差 3~7.5: 继续减速更多 (额外 range), 为大弯/直角弯留余量 */
 	float deviation = fabsf(current_position - 7.5f);
-	float i_speed = g_line_speed_base - (fminf(deviation, 3.0f) / 3.0f) * g_line_speed_range;
+	float i_speed;
+	if(deviation <= 3.0f)
+		i_speed = g_line_speed_base - (deviation / 3.0f) * g_line_speed_range;
+	else
+		i_speed = g_line_speed_base - g_line_speed_range
+		        - ((fminf(deviation, 7.5f) - 3.0f) / 4.5f) * g_line_speed_range;
 
 	if(star_car)
 	{

@@ -59,13 +59,20 @@ float BDI_V = 0;                             /* 电池电压 (V) */
 #define LOW_BATTERY_RECOVER_TH    7.6f       /* 电压恢复阈值 (V), 滞回防抖 */
 #define LOW_BATTERY_LED_PERIOD_MS 300        /* LED闪烁周期 (ms) */
 #define LOW_BATTERY_MSG_PERIOD_MS 5000       /* 低电压消息发送周期 (ms) */
-#define LOW_BATTERY_DEBOUNCE_CNT  500         /* 消抖计数, 约1000ms连续低电压才触发 */
+#define LOW_BATTERY_DEBOUNCE_CNT  2500        /* 消抖计数, 约5000ms连续低电压才触发 */
 
 static uint8_t g_low_battery_flag = 0;       /* 低电压标志 */
 static uint32_t g_low_battery_led_timer = 0; /* LED闪烁定时器 */
 static uint32_t g_low_battery_msg_timer = 0; /* 消息发送定时器 */
 static uint8_t g_low_battery_led_state = 0;  /* LED当前状态: 0=灭, 1=亮 */
 static uint16_t g_low_battery_debounce = 0;  /* 低电压消抖计数器 */
+
+/* ========================================================================== */
+/*                           光电管校准相关定义                                 */
+/* ========================================================================== */
+static uint8_t g_calibrating = 0;              /* 校准状态: 0=未校准, 1=正在校准 */
+static uint16_t g_cal_min[SENSOR_COUNT];       /* 校准期间各路最小值 */
+static uint16_t g_cal_max[SENSOR_COUNT];       /* 校准期间各路最大值 */
 
 /* ========================================================================== */
 /*                              系统初始化                                     */
@@ -324,9 +331,44 @@ static void HandleKeyEvent(Key_Event_t *event)
 			}
 			break;
 
-		/* K3: 打印电池电压 */
+		/* K3: 光电管校准 (仅空闲状态可用) */
 		case KEY_K3:
-			printf("Battery Voltage: %.2fV\r\n", BDI_V);
+			if(star_car || g_bt_key_control_mode || BT_IsEmergencyStopped())
+			{
+				printf("[CAL] ERR: only available in idle state\r\n");
+				break;
+			}
+			if(!g_calibrating)
+			{
+				/* 第一次按下: 开始校准 */
+				uint8_t ci;
+				g_calibrating = 1;
+				for(ci = 0; ci < SENSOR_COUNT; ci++)
+				{
+					g_cal_min[ci] = 4095;  /* 12-bit ADC最大值 */
+					g_cal_max[ci] = 0;
+				}
+				printf("[CAL] Calibration started. Move sensors over black and white...\r\n");
+				RGB_SetColor(RGB_COLOR_B);  /* 蓝色提示校准中 */
+			}
+			else
+			{
+				/* 第二次按下: 结束校准, 计算并应用阈值 */
+				uint8_t ci;
+				g_calibrating = 0;
+				printf("\r\n[CAL] Calibration finished!\r\n");
+				printf("CH  |  Min  |  Max  | Threshold\r\n");
+				printf("----|-------|-------|----------\r\n");
+				for(ci = 0; ci < SENSOR_COUNT; ci++)
+				{
+					/* 阈值偏向黑色(min)侧35%, 给白色留更多抖动裕度 */
+					uint16_t thr = g_cal_min[ci] + (uint16_t)((g_cal_max[ci] - g_cal_min[ci]) * 0.35f);
+					BlackPoint_Finder_SetThreshold(ci, thr);
+					printf("%2d  |  %4d |  %4d |   %4d\r\n", ci, g_cal_min[ci], g_cal_max[ci], thr);
+				}
+				printf("[CAL] Thresholds applied!\r\n");
+				RGB_SetColor(RGB_COLOR_OFF);
+			}
 			break;
 
 		/* K4: 急停/解除急停 */
@@ -393,6 +435,18 @@ int main(void)
 		 * 校准说明: 真实7.36V时显示7.76V, 偏高0.4V
 		 * 以低电压(7.4V附近)为基准调整系数: 0.0038 * (7.36/7.76) ≈ 0.00360 */
 		BDI_V = (float)g_mux_adc_values[16] * 0.003605f;
+		
+		/* ====== 光电管校准: 持续采样更新最小/最大值 ====== */
+		if(g_calibrating)
+		{
+			uint8_t ci;
+			for(ci = 0; ci < SENSOR_COUNT; ci++)
+			{
+				uint16_t val = g_mux_adc_values[ci];
+				if(val < g_cal_min[ci]) g_cal_min[ci] = val;
+				if(val > g_cal_max[ci]) g_cal_max[ci] = val;
+			}
+		}
 		
 		/* ====== 低电压警告检测 (带消抖和滞回) ====== */
 		if(BDI_V > 0.5f && BDI_V < LOW_BATTERY_THRESHOLD)
