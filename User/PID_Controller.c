@@ -30,8 +30,11 @@ static SpeedPID_Controller_t g_speed_pid_left;
 static SpeedPID_Controller_t g_speed_pid_right;
 
 /* 巡线速度参数 (可通过串口动态调整) */
-static float g_line_speed_base = 180.0f;   /* 基础速度 (默认130) */
-static float g_line_speed_range = 30.0f;  /* 速度变化范围 (默认30) */
+static float g_line_speed_base = 160.0f;   /* 最高速度 (直线/缓弯) */
+static float g_line_speed_min  = 90.0f;   /* 最低速度 (直角弯) */
+static float g_gyro_omega_max  = 4.0f;    /* 陀螺仪满减速角速度 (rad/s) */
+static float g_gyro_speed_weight = 0.7f;  /* 陀螺仪减速权重 (0~1) */
+static float g_dev_speed_weight  = 0.3f;  /* 偏差减速权重 (0~1) */
 
 /* 位置环控制器 (巡线偏差修正) */
 static PositionPID_Controller_t g_position_pid;
@@ -583,16 +586,31 @@ void PID_Control_Update(void)
 	static uint8_t first_set = 0;
 	static float start_speed = 0.0f;
 
-	/* 根据偏差动态调整基础速度: 偏差越大速度越慢
-	 * 偏差 0~3: 线性减速 (range)
-	 * 偏差 3~7.5: 继续减速更多 (额外 range), 为大弯/直角弯留余量 */
+	/* 双通道动态调速: 陀螺仪(主) + 偏差(辅) 二次曲线叠加
+	 * 陀螺仪: 角速度大→正在转弯→立即减速 (实时, 无延迟)
+	 * 偏差:   位置偏大→弯道兜底→保底减速 (被动, 防丢线) */
+
+	/* 通道1: 陀螺仪角速度二次曲线 */
+	float omega = fabsf(LSE6DSR_data.gz_rads);
+	float norm_omega = omega / g_gyro_omega_max;
+	if(norm_omega > 1.0f) norm_omega = 1.0f;
+	float gyro_reduction = norm_omega * norm_omega;  /* 0~1 */
+
+	/* 通道2: 偏差二次曲线 */
 	float deviation = fabsf(current_position - 7.5f);
-	float i_speed;
-	if(deviation <= 3.0f)
-		i_speed = g_line_speed_base - (deviation / 3.0f) * g_line_speed_range;
-	else
-		i_speed = g_line_speed_base - g_line_speed_range
-		        - ((fminf(deviation, 7.5f) - 3.0f) / 4.5f) * g_line_speed_range;
+	float norm_dev = deviation / 7.5f;
+	if(norm_dev > 1.0f) norm_dev = 1.0f;
+	float dev_reduction = norm_dev * norm_dev;        /* 0~1 */
+
+	/* 加权取较大者: 两个通道谁要求减速更多就听谁的 */
+	float reduction = g_gyro_speed_weight * gyro_reduction
+	               + g_dev_speed_weight  * dev_reduction;
+	if(reduction > 1.0f) reduction = 1.0f;
+
+	float i_speed = g_line_speed_base
+	             - reduction * (g_line_speed_base - g_line_speed_min);
+
+	if(i_speed < g_line_speed_min) i_speed = g_line_speed_min;
 
 	if(star_car)
 	{
@@ -841,25 +859,65 @@ void WheelLock_Update(void)
 
 /**
  * @brief  设置巡线速度参数
- * @param  base_speed   基础速度 (原先固定为 80)
- * @param  speed_range  速度变化范围 (原先固定为 30)
- * @note   公式: i_speed = base_speed - (deviation/3) * speed_range
+ * @param  base_speed   最高速度 (直线/缓弯)
+ * @param  min_speed    最低速度 (直角弯)
  */
-void PID_SetLineSpeedParams(float base_speed, float speed_range)
+void PID_SetLineSpeedParams(float base_speed, float min_speed)
 {
 	g_line_speed_base = base_speed;
-	g_line_speed_range = speed_range;
+	g_line_speed_min  = min_speed;
 }
 
 /**
  * @brief  获取巡线速度参数
- * @param  base_speed   输出: 基础速度
- * @param  speed_range  输出: 速度变化范围
+ * @param  base_speed   输出: 最高速度
+ * @param  min_speed    输出: 最低速度
  */
-void PID_GetLineSpeedParams(float *base_speed, float *speed_range)
+void PID_GetLineSpeedParams(float *base_speed, float *min_speed)
 {
 	if(base_speed) *base_speed = g_line_speed_base;
-	if(speed_range) *speed_range = g_line_speed_range;
+	if(min_speed) *min_speed = g_line_speed_min;
+}
+
+/**
+ * @brief  设置偏差变化率减速系数 → 改为设置陀螺仪满减速角速度
+ */
+void PID_SetLineSpeedRateK(float omega_max)
+{
+	if(omega_max > 0.1f)
+		g_gyro_omega_max = omega_max;
+}
+
+/**
+ * @brief  获取陀螺仪满减速角速度
+ */
+float PID_GetLineSpeedRateK(void)
+{
+	return g_gyro_omega_max;
+}
+
+/**
+ * @brief  设置陀螺仪/偏差减速权重
+ * @param  gyro_w  陀螺仪权重 (0~1)
+ * @param  dev_w   偏差权重 (0~1)
+ */
+void PID_SetSpeedWeights(float gyro_w, float dev_w)
+{
+	if(gyro_w < 0.0f) gyro_w = 0.0f;
+	if(gyro_w > 1.0f) gyro_w = 1.0f;
+	if(dev_w < 0.0f) dev_w = 0.0f;
+	if(dev_w > 1.0f) dev_w = 1.0f;
+	g_gyro_speed_weight = gyro_w;
+	g_dev_speed_weight = dev_w;
+}
+
+/**
+ * @brief  获取陀螺仪/偏差减速权重
+ */
+void PID_GetSpeedWeights(float *gyro_w, float *dev_w)
+{
+	if(gyro_w) *gyro_w = g_gyro_speed_weight;
+	if(dev_w) *dev_w = g_dev_speed_weight;
 }
 
 /**

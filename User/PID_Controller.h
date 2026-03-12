@@ -265,18 +265,40 @@ void WheelLock_Update(void);
 
 /**
  * @brief  设置巡线速度参数 (运行时可调)
- * @param  base_speed   基础速度 (默认 80, 即 i_speed 公式中的第一个值)
- * @param  speed_range  速度变化范围 (默认 30, 即偏差最大时的减速量)
- * @note   公式: i_speed = base_speed - (deviation/3) * speed_range
+ * @param  base_speed   最高速度 (直线/缓弯, 默认 190)
+ * @param  min_speed    最低速度 (直角弯, 默认 100)
+ * @note   双通道二次曲线: 陀螺仪(主) + 偏差(辅) 叠加减速
  */
-void PID_SetLineSpeedParams(float base_speed, float speed_range);
+void PID_SetLineSpeedParams(float base_speed, float min_speed);
 
 /**
  * @brief  获取巡线速度参数
- * @param  base_speed   输出: 基础速度
- * @param  speed_range  输出: 速度变化范围
+ * @param  base_speed   输出: 最高速度
+ * @param  min_speed    输出: 最低速度
  */
-void PID_GetLineSpeedParams(float *base_speed, float *speed_range);
+void PID_GetLineSpeedParams(float *base_speed, float *min_speed);
+
+/**
+ * @brief  设置陀螺仪满减速角速度 (rad/s)
+ */
+void PID_SetLineSpeedRateK(float omega_max);
+
+/**
+ * @brief  获取陀螺仪满减速角速度
+ */
+float PID_GetLineSpeedRateK(void);
+
+/**
+ * @brief  设置陀螺仪/偏差减速权重
+ * @param  gyro_w  陀螺仪权重 (0~1, 默认 0.7)
+ * @param  dev_w   偏差权重 (0~1, 默认 0.3)
+ */
+void PID_SetSpeedWeights(float gyro_w, float dev_w);
+
+/**
+ * @brief  获取陀螺仪/偏差减速权重
+ */
+void PID_GetSpeedWeights(float *gyro_w, float *dev_w);
 
 /**
  * @brief  获取当前 PID 运行状态 (用于串口调试)

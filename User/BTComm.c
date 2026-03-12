@@ -38,6 +38,11 @@ static uint8_t g_live_debug = 0;            /* 实时数据打印开关: 0=关, 
 static uint32_t g_live_debug_last_ms = 0;   /* 上次打印时间戳 (ms) */
 #define LIVE_DEBUG_INTERVAL_MS  100         /* 打印间隔 (100ms) */
 
+/*=== 光电管调试打印状态 ===*/
+static uint8_t g_sensor_debug = 0;            /* 光电管调试开关: 0=关, 1=开 */
+static uint32_t g_sensor_debug_last_ms = 0;   /* 上次打印时间戳 */
+#define SENSOR_DEBUG_INTERVAL_MS  50           /* 打印间隔 (50ms, 高频) */
+
 /*=== 吸盘默认转速配置 ===*/
 #define VACUUM_DEFAULT_SPEED  0          // 吸盘默认转速百分比
 
@@ -762,36 +767,67 @@ static void BT_ParseCommand(const char *cmd)
         return;
     }
     
-    // 巡线速度参数设置: ISPD:base,range - 修改i_speed公式中的80和30
+    // 巡线速度参数设置: ISPD:base,min[,omega_max]
     if(strcmp(cmd_part, "ISPD") == 0)
     {
-        float base = 0.0f, range = 0.0f;
+        float base = 0.0f, spd_min = 0.0f, omega_max = 0.0f;
         int args = 0;
         
         if(colon)
         {
-            args = sscanf(colon + 1, "%f,%f", &base, &range);
+            args = sscanf(colon + 1, "%f,%f,%f", &base, &spd_min, &omega_max);
         }
         
-        if(args == 2)
+        if(args >= 2)
         {
-            PID_SetLineSpeedParams(base, range);
+            PID_SetLineSpeedParams(base, spd_min);
+            if(args >= 3)
+                PID_SetLineSpeedRateK(omega_max);
             char buf[64];
-            sprintf(buf, "OK:ISPD=%.1f,%.1f\r\n", base, range);
+            sprintf(buf, "OK:ISPD=%.0f,%.0f,W=%.1f\r\n", base, spd_min, PID_GetLineSpeedRateK());
             BT_SendResponse(buf);
         }
         else if(args == 0 || colon == NULL)
         {
-            // 无参数时查询当前值
-            float cur_base, cur_range;
-            PID_GetLineSpeedParams(&cur_base, &cur_range);
-            char buf[64];
-            sprintf(buf, "ISPD:%.1f,%.1f\r\n", cur_base, cur_range);
+            float cur_base, cur_min, gw, dw;
+            PID_GetLineSpeedParams(&cur_base, &cur_min);
+            PID_GetSpeedWeights(&gw, &dw);
+            char buf[80];
+            sprintf(buf, "ISPD:%.0f,%.0f,W=%.1f,GW=%.1f,DW=%.1f\r\n", 
+                    cur_base, cur_min, PID_GetLineSpeedRateK(), gw, dw);
             BT_SendResponse(buf);
         }
         else
         {
-            BT_SendResponse("ERR:ISPD_FMT (use ISPD:base,range)\r\n");
+            BT_SendResponse("ERR:ISPD_FMT (use ISPD:base,min[,omega_max])\r\n");
+        }
+        return;
+    }
+    
+    // 减速权重设置: ISPDW:gyro_w,dev_w
+    if(strcmp(cmd_part, "ISPDW") == 0)
+    {
+        float gw = 0.0f, dw = 0.0f;
+        int args = 0;
+        
+        if(colon)
+        {
+            args = sscanf(colon + 1, "%f,%f", &gw, &dw);
+        }
+        
+        if(args == 2)
+        {
+            PID_SetSpeedWeights(gw, dw);
+            char buf[48];
+            sprintf(buf, "OK:ISPDW=%.2f,%.2f\r\n", gw, dw);
+            BT_SendResponse(buf);
+        }
+        else
+        {
+            PID_GetSpeedWeights(&gw, &dw);
+            char buf[48];
+            sprintf(buf, "ISPDW:%.2f,%.2f\r\n", gw, dw);
+            BT_SendResponse(buf);
         }
         return;
     }
@@ -808,6 +844,23 @@ static void BT_ParseCommand(const char *cmd)
         else
         {
             BT_SendResponse("OK:LIVE=OFF\r\n");
+        }
+        return;
+    }
+    
+    // 光电管调试打印开关（SDBG 命令，每次接收均切换状态）
+    // 打印格式: "000000011000000\r\n" (16位, 1=黑线, 0=白)
+    if(strcmp(cmd_part, "SDBG") == 0)
+    {
+        g_sensor_debug = !g_sensor_debug;
+        if(g_sensor_debug)
+        {
+            g_sensor_debug_last_ms = g_systick_ms;
+            BT_SendResponse("OK:SDBG=ON\r\n");
+        }
+        else
+        {
+            BT_SendResponse("OK:SDBG=OFF\r\n");
         }
         return;
     }
@@ -934,6 +987,30 @@ void BT_Process(void)
             char buf[64];
             sprintf(buf, "LIVE:L=%d,R=%d,ERR=%.2f,WT=%.0f\r\n",
                     speed_left, speed_right, pos_err, wt);
+            BT_SendResponse(buf);
+        }
+    }
+
+    /* 光电管调试数据高频打印 */
+    if(g_sensor_debug)
+    {
+        uint32_t now = g_systick_ms;
+        if((now - g_sensor_debug_last_ms) >= SENSOR_DEBUG_INTERVAL_MS)
+        {
+            g_sensor_debug_last_ms = now;
+            uint8_t black_flags[SENSOR_COUNT];
+            char buf[24];  /* 16 chars + \r\n + \0 */
+            uint8_t i;
+            
+            BlackPoint_Finder_GetBlackFlags_Dynamic(g_mux_adc_values, black_flags);
+            
+            for(i = 0; i < SENSOR_COUNT; i++)
+            {
+                buf[i] = black_flags[i] ? '1' : '0';
+            }
+            buf[SENSOR_COUNT] = '\r';
+            buf[SENSOR_COUNT + 1] = '\n';
+            buf[SENSOR_COUNT + 2] = '\0';
             BT_SendResponse(buf);
         }
     }
