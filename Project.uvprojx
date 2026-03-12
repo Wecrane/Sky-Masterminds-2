@@ -834,6 +834,16 @@
               <FileType>5</FileType>
               <FilePath>.\User\CircleHandler.h</FilePath>
             </File>
+            <File>
+              <FileName>SpeedProfile.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\User\SpeedProfile.c</FilePath>
+            </File>
+            <File>
+              <FileName>SpeedProfile.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\User\SpeedProfile.h</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>

@@ -31,6 +31,7 @@
 #include "PID_Controller.h"
 #include "Odometer.h"
 #include "CircleHandler.h"
+#include "SpeedProfile.h"
 
 /* ========================================================================== */
 /*                              外部变量引用                                   */
@@ -416,6 +417,7 @@ int main(void)
 	BT_Init();
 	PID_Init();
 	Odometer_Init();  /* 初始化里程计模块 */
+	SpeedProfile_Init();  /* 初始化分段减速模块 */
 	Circle_Init();    /* 初始化圆环检测模块 */
 	
 	/* ====== 初始状态: 等待按键启动 ====== */

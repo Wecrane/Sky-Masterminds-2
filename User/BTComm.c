@@ -685,6 +685,15 @@ static void BT_ParseCommand(const char *cmd)
         return;
     }
     
+    // 快速查询累计里程: ?DIST 或 DIST - 仅返回累计行驶距离
+    if(strcmp(cmd_part, "?DIST") == 0 || strcmp(cmd_part, "DIST") == 0)
+    {
+        char buf[64];
+        sprintf(buf, "DIST:%.1f mm\r\n", Odometer_GetLocation());
+        BT_SendResponse(buf);
+        return;
+    }
+    
     // 里程计重置: ODOM_RST - 重置坐标和里程
     if(strcmp(cmd_part, "ODOM_RST") == 0)
     {

@@ -9,6 +9,8 @@
 
 #include "PID_Controller.h"
 #include "LSM6DSR_Config.h"
+#include "SpeedProfile.h"
+#include "Odometer.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +32,7 @@ static SpeedPID_Controller_t g_speed_pid_left;
 static SpeedPID_Controller_t g_speed_pid_right;
 
 /* 巡线速度参数 (可通过串口动态调整) */
-static float g_line_speed_base = 160.0f;   /* 最高速度 (直线/缓弯) */
+static float g_line_speed_base = 250.0f;   /* 最高速度 (直线/缓弯) */
 static float g_line_speed_min  = 90.0f;   /* 最低速度 (直角弯) */
 static float g_gyro_omega_max  = 4.0f;    /* 陀螺仪满减速角速度 (rad/s) */
 static float g_gyro_speed_weight = 0.7f;  /* 陀螺仪减速权重 (0~1) */
@@ -607,8 +609,17 @@ void PID_Control_Update(void)
 	               + g_dev_speed_weight  * dev_reduction;
 	if(reduction > 1.0f) reduction = 1.0f;
 
-	float i_speed = g_line_speed_base
-	             - reduction * (g_line_speed_base - g_line_speed_min);
+	/* 路线规划: 根据累计里程前瞻性调整最高速度 */
+	float effective_base = g_line_speed_base;
+	if(star_car && SpeedProfile_IsEnabled())
+	{
+		float route_speed = SpeedProfile_GetTargetSpeed(Odometer_GetLocation());
+		if(route_speed < effective_base)
+			effective_base = route_speed;
+	}
+
+	float i_speed = effective_base
+	             - reduction * (effective_base - g_line_speed_min);
 
 	if(i_speed < g_line_speed_min) i_speed = g_line_speed_min;
 

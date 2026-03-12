@@ -208,9 +208,8 @@ void SysTick_Handler(void)
     Circle_Update(adc_src);
     
     /* 圆环 ENTERING/EXITING 阶段已在 Circle_Update 中设置了 position_get,
-     * 跳过正常的全幅搜索; NORMAL/IN_CIRCLE 阶段走正常流程 */
-    if(Circle_GetState() == CIRCLE_STATE_NORMAL || 
-       Circle_GetState() == CIRCLE_STATE_IN_CIRCLE)
+     * 跳过正常的全幅搜索; NORMAL 阶段走正常流程 */
+    if(Circle_GetState() == CIRCLE_STATE_NORMAL)
     {
       BlackPoint_Finder_Search(adc_src, &result_BlackPoint);
       
