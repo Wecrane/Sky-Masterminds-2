@@ -61,6 +61,7 @@ float BDI_V = 0;                             /* 电池电压 (V) */
 #define LOW_BATTERY_LED_PERIOD_MS 300        /* LED闪烁周期 (ms) */
 #define LOW_BATTERY_MSG_PERIOD_MS 5000       /* 低电压消息发送周期 (ms) */
 #define LOW_BATTERY_DEBOUNCE_CNT  2500        /* 消抖计数, 约5000ms连续低电压才触发 */
+#define LINE_MODE_DEFAULT_VACUUM_SPEED 80    /* K1启动巡线时默认负压转速(%) */
 
 static uint8_t g_low_battery_flag = 0;       /* 低电压标志 */
 static uint32_t g_low_battery_led_timer = 0; /* LED闪烁定时器 */
@@ -285,10 +286,14 @@ static void HandleKeyEvent(Key_Event_t *event)
 				Circle_Reset();  /* 重置圆环状态机 */
 				Odometer_Reset();  /* 重置里程计，以当前位置为坐标原点 */
 				Motor_Enable();
-				/* 负压风扇: 使用蓝牙设置的转速，默认20% */
+				/* 负压风扇: 使用蓝牙设置的转速，未设置时默认80% */
 				{
 					uint8_t vac_speed = BT_GetVacuumSpeed();
-					if(vac_speed == 0) vac_speed = 0;  /* 默认10% */
+					if(vac_speed == 0)
+					{
+						vac_speed = LINE_MODE_DEFAULT_VACUUM_SPEED;
+						BT_SetVacuumSpeedDirect(vac_speed);
+					}
 					uint16_t duty = (1000 * vac_speed) / 100;
 					M3PWM_SetDutyCycle(duty);
 				}

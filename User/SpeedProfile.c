@@ -28,6 +28,7 @@
  */
 
 #include "SpeedProfile.h"
+#include "RoutePoints.h"
 #include <stdio.h>
 
 /* ========================================================================== */
@@ -54,7 +55,7 @@
 #define SPEED_SMALL_CIRCLE   160.0f
 
 /** 出环后降速 */
-#define SPEED_POST_CIRCLE    110.0f
+#define SPEED_POST_CIRCLE    130.0f
 
 /* ========================================================================== */
 /*               路线速度表 (实测数据)                                         */
@@ -68,17 +69,17 @@
  */
 static const RouteWaypoint_t s_route[] = {
     /*  里程(mm)        速度              说明                    */
-    {      0.0f,    SPEED_HIGH     },  /* 起步直道               */
-    {  10300.0f,    SPEED_LOW      },  /* 第1个直角弯             */
-    {  11300.0f,    SPEED_HIGH     },  /* 弯后直道                */
-    {  17400.0f,    SPEED_SMALL_CIRCLE }, /* 小圆环减速             */
-    {  20300.0f,    SPEED_HIGH     },  /* 小圆环后恢复高速        */
-    {  28700.0f,    SPEED_LOW      },  /* 第2个直角弯             */
-    {  29700.0f,    SPEED_HIGH     },  /* 弯后直道                */
-    {  33500.0f,    SPEED_SMALL_CIRCLE }, /* 34000-36000mm降速到160  */
-    {  34500.0f,    SPEED_HIGH     },  /* 恢复高速 → 圆环入口前   */
-    {  39600.0f,    SPEED_SMALL_CIRCLE }, /* 圆环内速度 160         */
-    {  48000.0f,    SPEED_POST_CIRCLE }, /* 出环后降速到110        */
+    {  ROUTE_START_MM,                 SPEED_HIGH         },  /* 起步直道               */
+    {  ROUTE_TURN1_ENTER_MM,           SPEED_LOW          },  /* 第1个直角弯             */
+    {  ROUTE_TURN1_EXIT_MM,            SPEED_HIGH         },  /* 弯后直道                */
+    {  ROUTE_SMALL_CIRCLE1_ENTER_MM,   SPEED_SMALL_CIRCLE },  /* 小圆环减速              */
+    {  ROUTE_SMALL_CIRCLE1_EXIT_MM,    SPEED_HIGH         },  /* 小圆环后恢复高速        */
+    {  ROUTE_TURN2_ENTER_MM,           SPEED_LOW          },  /* 第2个直角弯             */
+    {  ROUTE_TURN2_EXIT_MM,            SPEED_HIGH         },  /* 弯后直道                */
+    {  ROUTE_SMALL_CIRCLE2_ENTER_MM,   SPEED_SMALL_CIRCLE },  /* 34000-36000mm降速到160  */
+    {  ROUTE_SMALL_CIRCLE2_EXIT_MM,    SPEED_HIGH         },  /* 恢复高速 → 圆环入口前   */
+    {  ROUTE_CIRCLE_SPEED_SLOW_MM,    SPEED_SMALL_CIRCLE }, /* 圆环内速度 160         */
+    {  ROUTE_POST_CIRCLE_SPEED_MM,    SPEED_POST_CIRCLE }, /* 出环后降速到110        */
 };
 
 #define ROUTE_COUNT  (sizeof(s_route) / sizeof(s_route[0]))

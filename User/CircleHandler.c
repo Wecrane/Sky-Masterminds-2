@@ -4,9 +4,10 @@
  * @details 基于编码器累计里程触发, 纯里程控制, 无角度积分
  *
  *          流程:
- *          1. 里程达到入环距离 → 左侧半侧追线
- *          2. 里程达到出环偏向距离 → 右侧半侧追线准备出环
- *          3. 里程达到出环距离 → 出环完成, 恢复正常
+ *          1. 大圆环入环检测开始 → 左侧半侧追线
+ *          2. 大圆环入环检测结束 → 恢复正常追线
+ *          3. 大圆环出环检测开始 → 右侧半侧追线
+ *          4. 大圆环出环检测结束 → 出环完成, 恢复正常
  *          4. 出环后开始检测停车区域 (十字路口横线)
  *          5. 检测到 3 根横线后立即抱死停车
  *          6. 停车 3s 后退出巡线模式
@@ -21,6 +22,7 @@
 #include "RGB_Led.h"
 #include "Odometer.h"
 #include "SpeedProfile.h"
+#include "RoutePoints.h"
 #include <stdio.h>
 
 /* ========================================================================== */
@@ -35,15 +37,11 @@ extern uint8_t star_car;
 /*                              可调参数                                       */
 /* ========================================================================== */
 
-/* ---- 里程触发阈值 (mm, 根据实测数据) ---- */
-/* 实测入环: (39992 + 40060) / 2 = 40026, 提前200mm开始左侧追线 */
-#define CIRCLE_ENTRY_DISTANCE_MM   39800.0f
-
-/* 实测出环: 45322, 出环右侧追线结束距离 */
-#define CIRCLE_EXIT_DISTANCE_MM    48000.0f
-
-/* 出环引导切换距离: 里程达到此值后切换为右侧追线准备出环 */
-#define CIRCLE_EXIT_BIAS_MM      45000.0f
+/* ---- 大圆环检测窗口阈值 (mm) ---- */
+#define CIRCLE_ENTRY_DETECT_START_MM  ROUTE_CIRCLE_ENTRY_DETECT_START_MM
+#define CIRCLE_ENTRY_DETECT_STOP_MM   ROUTE_CIRCLE_ENTRY_DETECT_STOP_MM
+#define CIRCLE_EXIT_DETECT_START_MM   ROUTE_CIRCLE_EXIT_DETECT_START_MM
+#define CIRCLE_EXIT_DETECT_STOP_MM    ROUTE_CIRCLE_EXIT_DETECT_STOP_MM
 
 /* 流程时间参数 */
 #define PARKING_ENABLE_DELAY_MS  2000    /* 出环后 2s 开始检测停车 */
@@ -55,9 +53,9 @@ extern uint8_t star_car;
 /*                              序列阶段枚举                                   */
 /* ========================================================================== */
 typedef enum {
-	PHASE_LEFT_WAIT = 0,        /* 等待里程达到入环距离 */
-	PHASE_LEFT_BIAS,            /* 左侧权重加强 + 角度积分 */
-	PHASE_DONE                  /* 左环完成, 等待停车 */
+	PHASE_WAIT_ENTRY_DETECT = 0, /* 等待入环检测开始 */
+	PHASE_WAIT_EXIT_DETECT,      /* 入环检测结束后, 等待出环检测开始 */
+	PHASE_DONE                   /* 大圆环完成, 等待停车 */
 } CirclePhase_t;
 
 /* ========================================================================== */
@@ -66,7 +64,7 @@ typedef enum {
 static CircleState_t s_state = CIRCLE_STATE_NORMAL;
 
 /* 序列阶段 */
-static CirclePhase_t s_phase = PHASE_LEFT_WAIT;
+static CirclePhase_t s_phase = PHASE_WAIT_ENTRY_DETECT;
 
 /* 时序计时 */
 static uint32_t s_left_exit_ms = 0;       /* 左环出环时间 */
@@ -84,6 +82,28 @@ static uint32_t s_parking_stop_ms = 0;    /* 停车开始时间 */
 /* 调试打印限流 */
 static uint32_t s_last_print_ms = 0;
 
+static void Circle_UpdateWindowLed(void)
+{
+	float loc = Odometer_GetLocation();
+	uint8_t in_window = 0;
+
+	if(loc >= ROUTE_TURN1_ENTER_MM && loc < ROUTE_TURN1_EXIT_MM) in_window = 1;
+	if(loc >= ROUTE_SMALL_CIRCLE1_ENTER_MM && loc < ROUTE_SMALL_CIRCLE1_EXIT_MM) in_window = 1;
+	if(loc >= ROUTE_TURN2_ENTER_MM && loc < ROUTE_TURN2_EXIT_MM) in_window = 1;
+	if(loc >= ROUTE_SMALL_CIRCLE2_ENTER_MM && loc < ROUTE_SMALL_CIRCLE2_EXIT_MM) in_window = 1;
+	if(loc >= CIRCLE_ENTRY_DETECT_START_MM && loc < CIRCLE_ENTRY_DETECT_STOP_MM) in_window = 1;
+	if(loc >= CIRCLE_EXIT_DETECT_START_MM && loc < CIRCLE_EXIT_DETECT_STOP_MM) in_window = 1;
+
+	if(in_window)
+	{
+		RGB_SetColor(RGB_COLOR_MAGENTA);
+	}
+	else
+	{
+		RGB_SetColor(RGB_COLOR_G);
+	}
+}
+
 /* ========================================================================== */
 /*                              公有函数实现                                   */
 /* ========================================================================== */
@@ -91,7 +111,7 @@ static uint32_t s_last_print_ms = 0;
 void Circle_Init(void)
 {
 	s_state = CIRCLE_STATE_NORMAL;
-	s_phase = PHASE_LEFT_WAIT;
+	s_phase = PHASE_WAIT_ENTRY_DETECT;
 	s_left_exit_ms = 0;
 	s_was_running = 0;
 	s_parking_detection_enabled = 0;
@@ -109,7 +129,7 @@ void Circle_Reset(void)
 		printf("[CIRCLE] reset\r\n");
 	}
 	s_state = CIRCLE_STATE_NORMAL;
-	s_phase = PHASE_LEFT_WAIT;
+	s_phase = PHASE_WAIT_ENTRY_DETECT;
 	s_left_exit_ms = 0;
 	s_was_running = 0;
 	s_parking_detection_enabled = 0;
@@ -182,6 +202,10 @@ void Circle_Update(volatile uint16_t *adc_values)
 			SpeedPID_ResetState();
 			printf("[PKG] done\r\n");
 		}
+		else
+		{
+			Circle_UpdateWindowLed();
+		}
 		return;
 	}
 	
@@ -200,13 +224,17 @@ void Circle_Update(volatile uint16_t *adc_values)
 	if(!s_was_running)
 	{
 		s_was_running = 1;
-		s_phase = PHASE_LEFT_WAIT;
+		s_phase = PHASE_WAIT_ENTRY_DETECT;
 		s_parking_detection_enabled = 0;
 		s_crossline_count = 0;
 		s_on_crossline = 0;
 		Odometer_Reset();         /* 里程清零, 配合分段减速 */
 		SpeedProfile_Reset();     /* 路段索引归零 */
-		printf("[CIRCLE] start, entry@%.0fmm\r\n", CIRCLE_ENTRY_DISTANCE_MM);
+		printf("[CIRCLE] start, entry[%.0f-%.0f] exit[%.0f-%.0f]\r\n",
+			CIRCLE_ENTRY_DETECT_START_MM,
+			CIRCLE_ENTRY_DETECT_STOP_MM,
+			CIRCLE_EXIT_DETECT_START_MM,
+			CIRCLE_EXIT_DETECT_STOP_MM);
 	}
 	
 	/* ======== 停车区域检测 (左环出环后 2s 启用) ======== */
@@ -262,22 +290,26 @@ void Circle_Update(volatile uint16_t *adc_values)
 			/* 根据当前阶段决定行为 */
 			switch(s_phase)
 			{
-				case PHASE_LEFT_WAIT:
-				/* 等待里程达到入环距离 */
-				if(Odometer_GetLocation() >= CIRCLE_ENTRY_DISTANCE_MM)
+				case PHASE_WAIT_ENTRY_DETECT:
+				/* 等待里程达到入环检测开始点 */
+				if(Odometer_GetLocation() >= CIRCLE_ENTRY_DETECT_START_MM)
 				{
-					s_phase = PHASE_LEFT_BIAS;
 					s_state = CIRCLE_STATE_ENTERING;
-				printf("[CIRCLE] %.0fmm: enter (left)\r\n", Odometer_GetLocation());
+					printf("[CIRCLE] %.0fmm: entry detect on (left)\r\n", Odometer_GetLocation());
 				}
 				break;
 				
-				case PHASE_LEFT_BIAS:
-					/* 不应在 NORMAL 状态下出现此阶段 */
+				case PHASE_WAIT_EXIT_DETECT:
+				/* 等待里程达到出环检测开始点 */
+				if(Odometer_GetLocation() >= CIRCLE_EXIT_DETECT_START_MM)
+				{
+					s_state = CIRCLE_STATE_EXITING;
+					printf("[CIRCLE] %.0fmm: exit detect on (right)\r\n", Odometer_GetLocation());
+				}
 					break;
 				
 				case PHASE_DONE:
-					/* 左环已完成, 不再处理 */
+					/* 大圆环已完成, 不再处理 */
 					break;
 			}
 			break;
@@ -305,13 +337,14 @@ void Circle_Update(volatile uint16_t *adc_values)
 				}
 			}
 			
-			/* 里程达到出环偏向距离 → 切换右侧追线准备出环 */
+			/* 入环检测窗口结束 → 恢复正常追线 */
 			{
 				float loc = Odometer_GetLocation();
-				if(loc >= CIRCLE_EXIT_BIAS_MM)
+				if(loc >= CIRCLE_ENTRY_DETECT_STOP_MM)
 				{
-					s_state = CIRCLE_STATE_EXITING;
-					printf("[CIRCLE] %.0fmm: exit (right)\r\n", loc);
+					s_state = CIRCLE_STATE_NORMAL;
+					s_phase = PHASE_WAIT_EXIT_DETECT;
+					printf("[CIRCLE] %.0fmm: entry detect off (normal)\r\n", loc);
 				}
 			}
 			break;
@@ -339,15 +372,15 @@ void Circle_Update(volatile uint16_t *adc_values)
 				}
 			}
 			
-			/* 里程达到出环距离 → 出环完成 */
+			/* 出环检测窗口结束 → 恢复正常追线并标记完成 */
 			{
 				float loc = Odometer_GetLocation();
-				if(loc >= CIRCLE_EXIT_DISTANCE_MM)
+				if(loc >= CIRCLE_EXIT_DETECT_STOP_MM)
 				{
 					s_state = CIRCLE_STATE_NORMAL;
 					s_left_exit_ms = g_systick_ms;
 					s_phase = PHASE_DONE;
-					printf("[CIRCLE] %.0fmm: done\r\n", loc);
+					printf("[CIRCLE] %.0fmm: exit detect off (normal)\r\n", loc);
 				}
 			}
 			break;
@@ -357,4 +390,6 @@ void Circle_Update(volatile uint16_t *adc_values)
 			s_state = CIRCLE_STATE_NORMAL;
 			break;
 	}
+
+		Circle_UpdateWindowLed();
 }
